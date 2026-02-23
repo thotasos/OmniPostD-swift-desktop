@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @EnvironmentObject private var store: AppStore
+    @State private var statusMessage = ""
 
     var body: some View {
         ScrollView {
@@ -10,8 +11,17 @@ struct SettingsView: View {
                     .font(.system(size: 30, weight: .bold, design: .rounded))
 
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("Connected Accounts")
-                        .font(.headline)
+                    HStack {
+                        Text("Connected Accounts")
+                            .font(.headline)
+                        Spacer()
+                        Button("Refresh Accounts") {
+                            Task {
+                                statusMessage = await store.refreshAccounts()
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                    }
 
                     if store.accounts.isEmpty {
                         Text("No connected accounts")
@@ -24,7 +34,9 @@ struct SettingsView: View {
                                 Text(account.accountName)
                                     .foregroundStyle(.secondary)
                                 Button("Disconnect") {
-                                    store.disconnect(accountID: account.id)
+                                    Task {
+                                        statusMessage = await store.disconnect(accountID: account.id)
+                                    }
                                 }
                                 .buttonStyle(.borderless)
                             }
@@ -46,7 +58,9 @@ struct SettingsView: View {
                                     .foregroundStyle(.secondary)
                             } else {
                                 Button("Connect") {
-                                    store.connect(platform: platform.id)
+                                    Task {
+                                        statusMessage = await store.connect(platform: platform.id)
+                                    }
                                 }
                                 .buttonStyle(.borderedProminent)
                                 .tint(Theme.platformColor(platform.id))
@@ -59,11 +73,20 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Security Note")
                         .font(.headline)
-                    Text("OmniPostD stores account metadata and post history locally on this Mac. OAuth and live publishing are simulated in this desktop replica build.")
+                    Text("Connections now use backend OAuth endpoints. Start your Gemini backend on http://localhost:8000, click Connect, complete browser consent, then click Refresh Accounts.")
                         .foregroundStyle(.secondary)
                 }
                 .glassCard()
+
+                if !statusMessage.isEmpty {
+                    Text(statusMessage)
+                        .foregroundStyle(.secondary)
+                        .glassCard()
+                }
             }
+        }
+        .task {
+            statusMessage = await store.refreshAccounts()
         }
     }
 }

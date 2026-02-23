@@ -23,6 +23,13 @@ swift build -c release
 
 This generates `OmniPostD.app` at repository root.
 
+## Real OAuth Connections
+1. Start the Gemini backend at `http://localhost:8000`.
+2. In OmniPostD, click `Connect` for a platform.
+3. Browser opens the platform OAuth consent flow.
+4. Complete consent in browser.
+5. Back in app, click `Refresh Accounts` (Dashboard or Settings).
+
 ## Notes
-- This build is local-first and does not call the original web backend.
-- Account connections and publishing are simulated while preserving OmniPost flow and statuses.
+- Account connection now uses backend OAuth endpoints (`/auth/*`) and account sync (`/api/accounts`).
+- Publishing actions are still simulated in desktop app while preserving OmniPost flow and statuses.

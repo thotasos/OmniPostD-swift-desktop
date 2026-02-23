@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 
 struct SocialAccount: Codable, Identifiable, Hashable {
     let id: UUID
@@ -14,6 +15,7 @@ final class AppStore: ObservableObject {
     @Published private(set) var posts: [PostDraft] = []
 
     private let publisher = PublishingService()
+    private let backend = BackendService()
     private let saveURL: URL
 
     init() {
@@ -28,29 +30,35 @@ final class AppStore: ObservableObject {
         Set(accounts.filter(\.isActive).map(\.platform))
     }
 
-    func connect(platform: PlatformID) {
-        if let index = accounts.firstIndex(where: { $0.platform == platform }) {
-            accounts[index].isActive = true
-            persist()
-            return
+    func connect(platform: PlatformID) async -> String {
+        do {
+            let authURL = try await backend.startOAuth(platform: platform)
+            NSWorkspace.shared.open(authURL)
+            return "Browser opened for \(platform.rawValue.capitalized) OAuth. Complete auth, then click Refresh Accounts."
+        } catch {
+            return error.localizedDescription
         }
-
-        let account = SocialAccount(
-            id: UUID(),
-            platform: platform,
-            accountName: "\(PlatformCatalog.platform(id: platform)?.name ?? platform.rawValue) Account",
-            isActive: true,
-            createdAt: Date()
-        )
-        accounts.append(account)
-        accounts.sort { $0.platform.rawValue < $1.platform.rawValue }
-        persist()
     }
 
-    func disconnect(accountID: UUID) {
-        guard let index = accounts.firstIndex(where: { $0.id == accountID }) else { return }
-        accounts.remove(at: index)
-        persist()
+    func refreshAccounts() async -> String {
+        do {
+            accounts = try await backend.fetchAccounts()
+            persist()
+            return "Accounts synced from backend."
+        } catch {
+            return "Failed to refresh accounts: \(error.localizedDescription)"
+        }
+    }
+
+    func disconnect(accountID: UUID) async -> String {
+        do {
+            try await backend.disconnect(accountID: accountID)
+            accounts.removeAll { $0.id == accountID }
+            persist()
+            return "Account disconnected."
+        } catch {
+            return "Failed to disconnect account: \(error.localizedDescription)"
+        }
     }
 
     @discardableResult

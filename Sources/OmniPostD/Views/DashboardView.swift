@@ -2,6 +2,7 @@ import SwiftUI
 
 struct DashboardView: View {
     @EnvironmentObject private var store: AppStore
+    @State private var statusMessage = ""
 
     var body: some View {
         ScrollView {
@@ -10,7 +11,15 @@ struct DashboardView: View {
                 connectedAccounts
                 quickConnect
                 recentPosts
+                if !statusMessage.isEmpty {
+                    Text(statusMessage)
+                        .foregroundStyle(.secondary)
+                        .glassCard()
+                }
             }
+        }
+        .task {
+            statusMessage = await store.refreshAccounts()
         }
     }
 
@@ -26,8 +35,18 @@ struct DashboardView: View {
 
     private var connectedAccounts: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Connected Accounts")
-                .font(.title3.bold())
+            HStack {
+                Text("Connected Accounts")
+                    .font(.title3.bold())
+                Spacer()
+                Button("Refresh Accounts") {
+                    Task {
+                        statusMessage = await store.refreshAccounts()
+                    }
+                }
+                .buttonStyle(.bordered)
+            }
+
             if store.accounts.isEmpty {
                 Text("No accounts connected yet")
                     .foregroundStyle(.secondary)
@@ -43,7 +62,9 @@ struct DashboardView: View {
                             .foregroundStyle(.secondary)
                         Spacer()
                         Button("Disconnect") {
-                            store.disconnect(accountID: account.id)
+                            Task {
+                                statusMessage = await store.disconnect(accountID: account.id)
+                            }
                         }
                         .buttonStyle(.borderless)
                     }
@@ -55,13 +76,15 @@ struct DashboardView: View {
 
     private var quickConnect: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Quick Connect")
+            Text("Connect Accounts")
                 .font(.title3.bold())
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 120), spacing: 10)], spacing: 10) {
                 ForEach(PlatformCatalog.all) { platform in
                     let isConnected = store.connectedPlatformIDs.contains(platform.id)
                     Button(platform.name) {
-                        store.connect(platform: platform.id)
+                        Task {
+                            statusMessage = await store.connect(platform: platform.id)
+                        }
                     }
                     .buttonStyle(.borderedProminent)
                     .tint(Theme.platformColor(platform.id))
