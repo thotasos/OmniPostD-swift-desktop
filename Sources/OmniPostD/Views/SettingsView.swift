@@ -3,12 +3,20 @@ import SwiftUI
 struct SettingsView: View {
     @EnvironmentObject private var store: AppStore
     @State private var statusMessage = ""
+    @State private var alertText = ""
+    @State private var showAlert = false
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 Text("Settings")
                     .font(.system(size: 30, weight: .bold, design: .rounded))
+
+                if !statusMessage.isEmpty {
+                    Text(statusMessage)
+                        .foregroundStyle(.secondary)
+                        .glassCard()
+                }
 
                 VStack(alignment: .leading, spacing: 10) {
                     HStack {
@@ -17,7 +25,21 @@ struct SettingsView: View {
                         Spacer()
                         Button("Refresh Accounts") {
                             Task {
-                                statusMessage = await store.refreshAccounts()
+                                let message = await store.refreshAccounts()
+                                present(message)
+                            }
+                        }
+                        .buttonStyle(.bordered)
+
+                        Button("Reset Local Connections") {
+                            present(store.resetLocalConnections())
+                        }
+                        .buttonStyle(.bordered)
+
+                        Button("Disconnect All (Backend)") {
+                            Task {
+                                let message = await store.disconnectAllBackendConnections()
+                                present(message)
                             }
                         }
                         .buttonStyle(.bordered)
@@ -35,7 +57,8 @@ struct SettingsView: View {
                                     .foregroundStyle(.secondary)
                                 Button("Disconnect") {
                                     Task {
-                                        statusMessage = await store.disconnect(accountID: account.id)
+                                        let message = await store.disconnect(accountID: account.id)
+                                        present(message)
                                     }
                                 }
                                 .buttonStyle(.borderless)
@@ -59,7 +82,8 @@ struct SettingsView: View {
                             } else {
                                 Button("Connect") {
                                     Task {
-                                        statusMessage = await store.connect(platform: platform.id)
+                                        let message = await store.connect(platform: platform.id)
+                                        present(message)
                                     }
                                 }
                                 .buttonStyle(.borderedProminent)
@@ -77,16 +101,21 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 }
                 .glassCard()
-
-                if !statusMessage.isEmpty {
-                    Text(statusMessage)
-                        .foregroundStyle(.secondary)
-                        .glassCard()
-                }
             }
+        }
+        .alert("OmniPostD", isPresented: $showAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(alertText)
         }
         .task {
             statusMessage = await store.refreshAccounts()
         }
+    }
+
+    private func present(_ message: String) {
+        statusMessage = message
+        alertText = message
+        showAlert = true
     }
 }

@@ -36,7 +36,7 @@ final class AppStore: ObservableObject {
             NSWorkspace.shared.open(authURL)
             return "Browser opened for \(platform.rawValue.capitalized) OAuth. Complete auth, then click Refresh Accounts."
         } catch {
-            return error.localizedDescription
+            return "Connection failed: \(friendlyError(error))"
         }
     }
 
@@ -46,7 +46,7 @@ final class AppStore: ObservableObject {
             persist()
             return "Accounts synced from backend."
         } catch {
-            return "Failed to refresh accounts: \(error.localizedDescription)"
+            return "Failed to refresh accounts: \(friendlyError(error))"
         }
     }
 
@@ -57,8 +57,45 @@ final class AppStore: ObservableObject {
             persist()
             return "Account disconnected."
         } catch {
-            return "Failed to disconnect account: \(error.localizedDescription)"
+            // Keep the desktop app operable even when backend is unavailable.
+            accounts.removeAll { $0.id == accountID }
+            persist()
+            return "Backend disconnect failed (\(friendlyError(error))). Local connection removed."
         }
+    }
+
+    func resetLocalConnections() -> String {
+        accounts = []
+        persist()
+        return "Local connection state reset."
+    }
+
+    func disconnectAllBackendConnections() async -> String {
+        do {
+            let backendAccounts = try await backend.fetchAccounts()
+            for account in backendAccounts {
+                try await backend.disconnect(accountID: account.id)
+            }
+            accounts = []
+            persist()
+            return "All backend connections disconnected."
+        } catch {
+            return "Failed to disconnect all backend connections: \(friendlyError(error))"
+        }
+    }
+
+    private func friendlyError(_ error: Error) -> String {
+        let text = error.localizedDescription
+        if text.contains("Could not connect to the server") || text.contains("Failed to connect") {
+            return "Backend is unreachable at http://localhost:8000. Start Gemini backend first."
+        }
+        if let backend = error as? BackendError {
+            return backend.message
+        }
+        if text.isEmpty {
+            return "Unknown error."
+        }
+        return text
     }
 
     @discardableResult

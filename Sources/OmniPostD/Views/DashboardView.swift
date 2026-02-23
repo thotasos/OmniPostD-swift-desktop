@@ -3,20 +3,27 @@ import SwiftUI
 struct DashboardView: View {
     @EnvironmentObject private var store: AppStore
     @State private var statusMessage = ""
+    @State private var alertText = ""
+    @State private var showAlert = false
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 header
-                connectedAccounts
-                quickConnect
-                recentPosts
                 if !statusMessage.isEmpty {
                     Text(statusMessage)
                         .foregroundStyle(.secondary)
                         .glassCard()
                 }
+                connectedAccounts
+                quickConnect
+                recentPosts
             }
+        }
+        .alert("OmniPostD", isPresented: $showAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(alertText)
         }
         .task {
             statusMessage = await store.refreshAccounts()
@@ -41,8 +48,14 @@ struct DashboardView: View {
                 Spacer()
                 Button("Refresh Accounts") {
                     Task {
-                        statusMessage = await store.refreshAccounts()
+                        let message = await store.refreshAccounts()
+                        present(message)
                     }
+                }
+                .buttonStyle(.bordered)
+
+                Button("Reset Local Connections") {
+                    present(store.resetLocalConnections())
                 }
                 .buttonStyle(.bordered)
             }
@@ -63,7 +76,8 @@ struct DashboardView: View {
                         Spacer()
                         Button("Disconnect") {
                             Task {
-                                statusMessage = await store.disconnect(accountID: account.id)
+                                let message = await store.disconnect(accountID: account.id)
+                                present(message)
                             }
                         }
                         .buttonStyle(.borderless)
@@ -83,7 +97,8 @@ struct DashboardView: View {
                     let isConnected = store.connectedPlatformIDs.contains(platform.id)
                     Button(platform.name) {
                         Task {
-                            statusMessage = await store.connect(platform: platform.id)
+                            let message = await store.connect(platform: platform.id)
+                            present(message)
                         }
                     }
                     .buttonStyle(.borderedProminent)
@@ -93,6 +108,12 @@ struct DashboardView: View {
             }
         }
         .glassCard()
+    }
+
+    private func present(_ message: String) {
+        statusMessage = message
+        alertText = message
+        showAlert = true
     }
 
     private var recentPosts: some View {
