@@ -1,5 +1,4 @@
 import Foundation
-import AppKit
 
 struct SocialAccount: Codable, Identifiable, Hashable {
     let id: UUID
@@ -15,7 +14,8 @@ final class AppStore: ObservableObject {
     @Published private(set) var posts: [PostDraft] = []
 
     private let publisher = PublishingService()
-    private let backend = BackendService()
+    private let oauth = StandaloneOAuthService()
+    private var pendingOAuth: [PlatformID: OAuthPending] = [:]
     private let saveURL: URL
 
     init() {
@@ -30,38 +30,55 @@ final class AppStore: ObservableObject {
         Set(accounts.filter(\.isActive).map(\.platform))
     }
 
-    func connect(platform: PlatformID) async -> String {
+    func connect(platform: PlatformID) async -> (message: String, needsCallback: Bool) {
         do {
-            let authURL = try await backend.startOAuth(platform: platform)
-            NSWorkspace.shared.open(authURL)
-            return "Browser opened for \(platform.rawValue.capitalized) OAuth. Complete auth, then click Refresh Accounts."
+            let start = try oauth.beginConnection(for: platform)
+            if let pending = start.pending {
+                pendingOAuth[platform] = pending
+            }
+            return (start.message, start.requiresCallbackPaste)
+        } catch let error as StandaloneOAuthError {
+            return ("Connection failed: \(error.message)", false)
         } catch {
-            return "Connection failed: \(friendlyError(error))"
+            return ("Connection failed: \(error.localizedDescription)", false)
+        }
+    }
+
+    func completeConnection(platform: PlatformID, callbackURL: String) async -> String {
+        guard let pending = pendingOAuth[platform] else {
+            return "No pending OAuth session for \(platform.rawValue). Start connect again."
+        }
+
+        do {
+            let profile = try await oauth.finishConnection(platform: platform, callbackURLString: callbackURL, pending: pending)
+            pendingOAuth.removeValue(forKey: platform)
+
+            if let index = accounts.firstIndex(where: { $0.platform == platform }) {
+                accounts[index].accountName = profile.accountName
+                accounts[index].isActive = true
+            } else {
+                accounts.append(SocialAccount(id: UUID(), platform: platform, accountName: profile.accountName, isActive: true, createdAt: Date()))
+            }
+
+            accounts.sort { $0.platform.rawValue < $1.platform.rawValue }
+            persist()
+            return "Connected \(platform.rawValue.capitalized) as \(profile.accountName)."
+        } catch let error as StandaloneOAuthError {
+            return "Connection finalize failed: \(error.message)"
+        } catch {
+            return "Connection finalize failed: \(error.localizedDescription)"
         }
     }
 
     func refreshAccounts() async -> String {
-        do {
-            accounts = try await backend.fetchAccounts()
-            persist()
-            return "Accounts synced from backend."
-        } catch {
-            return "Failed to refresh accounts: \(friendlyError(error))"
-        }
+        persist()
+        return "Standalone mode: local account state is current."
     }
 
     func disconnect(accountID: UUID) async -> String {
-        do {
-            try await backend.disconnect(accountID: accountID)
-            accounts.removeAll { $0.id == accountID }
-            persist()
-            return "Account disconnected."
-        } catch {
-            // Keep the desktop app operable even when backend is unavailable.
-            accounts.removeAll { $0.id == accountID }
-            persist()
-            return "Backend disconnect failed (\(friendlyError(error))). Local connection removed."
-        }
+        accounts.removeAll { $0.id == accountID }
+        persist()
+        return "Account disconnected locally."
     }
 
     func resetLocalConnections() -> String {
@@ -71,31 +88,9 @@ final class AppStore: ObservableObject {
     }
 
     func disconnectAllBackendConnections() async -> String {
-        do {
-            let backendAccounts = try await backend.fetchAccounts()
-            for account in backendAccounts {
-                try await backend.disconnect(accountID: account.id)
-            }
-            accounts = []
-            persist()
-            return "All backend connections disconnected."
-        } catch {
-            return "Failed to disconnect all backend connections: \(friendlyError(error))"
-        }
-    }
-
-    private func friendlyError(_ error: Error) -> String {
-        let text = error.localizedDescription
-        if text.contains("Could not connect to the server") || text.contains("Failed to connect") {
-            return "Backend is unreachable at http://localhost:8000. Start Gemini backend first."
-        }
-        if let backend = error as? BackendError {
-            return backend.message
-        }
-        if text.isEmpty {
-            return "Unknown error."
-        }
-        return text
+        accounts = []
+        persist()
+        return "Standalone mode: all local connections removed."
     }
 
     @discardableResult

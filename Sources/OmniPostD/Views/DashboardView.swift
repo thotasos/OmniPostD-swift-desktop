@@ -5,6 +5,8 @@ struct DashboardView: View {
     @State private var statusMessage = ""
     @State private var alertText = ""
     @State private var showAlert = false
+    @State private var callbackInput = ""
+    @State private var pendingCallbackPlatform: PlatformID?
 
     var body: some View {
         ScrollView {
@@ -24,6 +26,34 @@ struct DashboardView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(alertText)
+        }
+        .sheet(item: $pendingCallbackPlatform) { platform in
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Complete \(platform.rawValue.capitalized) Connection")
+                    .font(.headline)
+                Text("Paste the full redirected URL from your browser after approving OAuth.")
+                    .foregroundStyle(.secondary)
+                TextField("https://localhost:8765/callback?code=...", text: $callbackInput)
+                    .textFieldStyle(.roundedBorder)
+                HStack {
+                    Button("Cancel") {
+                        pendingCallbackPlatform = nil
+                        callbackInput = ""
+                    }
+                    Spacer()
+                    Button("Complete") {
+                        Task {
+                            let message = await store.completeConnection(platform: platform, callbackURL: callbackInput)
+                            present(message)
+                            pendingCallbackPlatform = nil
+                            callbackInput = ""
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+            }
+            .padding(20)
+            .frame(width: 640)
         }
         .task {
             statusMessage = await store.refreshAccounts()
@@ -97,8 +127,11 @@ struct DashboardView: View {
                     let isConnected = store.connectedPlatformIDs.contains(platform.id)
                     Button(platform.name) {
                         Task {
-                            let message = await store.connect(platform: platform.id)
-                            present(message)
+                            let result = await store.connect(platform: platform.id)
+                            present(result.message)
+                            if result.needsCallback {
+                                pendingCallbackPlatform = platform.id
+                            }
                         }
                     }
                     .buttonStyle(.borderedProminent)
@@ -108,12 +141,6 @@ struct DashboardView: View {
             }
         }
         .glassCard()
-    }
-
-    private func present(_ message: String) {
-        statusMessage = message
-        alertText = message
-        showAlert = true
     }
 
     private var recentPosts: some View {
@@ -140,5 +167,11 @@ struct DashboardView: View {
             }
         }
         .glassCard()
+    }
+
+    private func present(_ message: String) {
+        statusMessage = message
+        alertText = message
+        showAlert = true
     }
 }

@@ -5,6 +5,8 @@ struct SettingsView: View {
     @State private var statusMessage = ""
     @State private var alertText = ""
     @State private var showAlert = false
+    @State private var callbackInput = ""
+    @State private var pendingCallbackPlatform: PlatformID?
 
     var body: some View {
         ScrollView {
@@ -33,14 +35,6 @@ struct SettingsView: View {
 
                         Button("Reset Local Connections") {
                             present(store.resetLocalConnections())
-                        }
-                        .buttonStyle(.bordered)
-
-                        Button("Disconnect All (Backend)") {
-                            Task {
-                                let message = await store.disconnectAllBackendConnections()
-                                present(message)
-                            }
                         }
                         .buttonStyle(.bordered)
                     }
@@ -82,8 +76,11 @@ struct SettingsView: View {
                             } else {
                                 Button("Connect") {
                                     Task {
-                                        let message = await store.connect(platform: platform.id)
-                                        present(message)
+                                        let result = await store.connect(platform: platform.id)
+                                        present(result.message)
+                                        if result.needsCallback {
+                                            pendingCallbackPlatform = platform.id
+                                        }
                                     }
                                 }
                                 .buttonStyle(.borderedProminent)
@@ -95,9 +92,9 @@ struct SettingsView: View {
                 .glassCard()
 
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Security Note")
+                    Text("Standalone OAuth Setup")
                         .font(.headline)
-                    Text("Connections now use backend OAuth endpoints. Start your Gemini backend on http://localhost:8000, click Connect, complete browser consent, then click Refresh Accounts.")
+                    Text("Populate client IDs/secrets at ~/Library/Application Support/OmniPostD/oauth_credentials.json. Configure each provider redirect URI to http://localhost:8765/callback.")
                         .foregroundStyle(.secondary)
                 }
                 .glassCard()
@@ -107,6 +104,34 @@ struct SettingsView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(alertText)
+        }
+        .sheet(item: $pendingCallbackPlatform) { platform in
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Complete \(platform.rawValue.capitalized) Connection")
+                    .font(.headline)
+                Text("Paste the full redirected URL from your browser after approving OAuth.")
+                    .foregroundStyle(.secondary)
+                TextField("https://localhost:8765/callback?code=...", text: $callbackInput)
+                    .textFieldStyle(.roundedBorder)
+                HStack {
+                    Button("Cancel") {
+                        pendingCallbackPlatform = nil
+                        callbackInput = ""
+                    }
+                    Spacer()
+                    Button("Complete") {
+                        Task {
+                            let message = await store.completeConnection(platform: platform, callbackURL: callbackInput)
+                            present(message)
+                            pendingCallbackPlatform = nil
+                            callbackInput = ""
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+            }
+            .padding(20)
+            .frame(width: 640)
         }
         .task {
             statusMessage = await store.refreshAccounts()
